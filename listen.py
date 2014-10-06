@@ -23,24 +23,44 @@ logging.basicConfig(level=logging.WARN)
 
 class SiemensDevice():
     def __init__(self, data):
-        # First 8 bytes are unknown...
-        logging.debug("Unknown bytes(8): %s", binascii.hexlify(data[:8]))
-        net = struct.unpack_from(">III", data, 8)
+        # First two bytes are command codes?
+        cmd,mac = struct.unpack_from(">H6s", data)
+        self.mac = binascii.hexlify(mac)
+        self.swv = "?"
+        self.blv = "?"
+        self.plantid = ""
+        logging.debug("command = %d(%x), mac=%s", cmd, cmd, binascii.hexlify(mac))
+        net_offs = 8
+        if cmd == 0x3211:
+            self.product = data[20:20+20].strip().strip("\0")
+            self.plantid = data[20+20:20+20+32].strip().strip("\0")
+        if cmd == 0x3612:
+            net_offs = 8 + 12
+            # Bigger packet replies, here...
+            # cmd, mac, ?6 bytes?, mac again, net details, block of 44 0xff, then product for 52, then ?? to the end
+            self.product = data[20+12+44:20+12+44+20].strip().strip("\0")
+            self.plantid = data[20+12+44+20:20+12+44+20+32].strip().strip("\0")
+            swv = struct.unpack_from("cBBB", data, 20+12+44+52+8)
+            self.swv = "%c%d.%d.%d" % swv
+            blv = struct.unpack_from("cBBB", data, 20+12+44+52+12)
+            self.blv = "%c%d.%d.%d" % blv
+
+        net = struct.unpack_from(">III", data, net_offs)
         self.ip = socket.inet_ntoa(struct.pack('>I',net[0]))
         self.netmask = socket.inet_ntoa(struct.pack('>I',net[1]))
         self.gw = socket.inet_ntoa(struct.pack('>I',net[2]))
-        self.product = data[20:].strip()
 
     def __repr__(self):
-        return "product=%(product)s {ip=%(ip)s, netmask=%(netmask)s, gw=%(gw)s}" % self.__dict__
+        return "product=%(product)s (plant=%(plantid)s) {ip=%(ip)s, netmask=%(netmask)s, gw=%(gw)s} {SW ver: %(swv)s, Boot ver: %(blv)s}" % self.__dict__
 
-def send_probe(src_addr):
-    data = "3101ffffffffffff"
+def send_probe(src_addr, cmd=0x3101, target_mac="ffffffffffff"):
+    # broadcast cmd, and broadcast mac (3101 works with specific macs too)
+    data = struct.pack(">H6s", cmd, binascii.unhexlify(target_mac))
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((src_addr, SIEMENS_DISC_PORT_MASTER))
-    bs = sock.sendto(binascii.unhexlify(data), ("255.255.255.255", SIEMENS_DISC_PORT_DEVICE))
+    bs = sock.sendto(data, ("255.255.255.255", SIEMENS_DISC_PORT_DEVICE))
     logging.info("Sent %d bytes from addres: %s", bs, src_addr)
     sock.close()
 
@@ -56,6 +76,8 @@ if __name__ == "__main__":
     s = listen("blah")
     start = time.time()
     send_probe("192.168.255.124")
+    # Send this once you have a mac, to get the fw version and bootloader version, if desired...
+    #send_probe("192.168.255.124", cmd=0x3501, target_mac="20bbc602192a")
 
     while time.time() - start < REPLY_TIMEOUT:
         # Should really calculate timeout from current time, but worst case is only 2*REPLY_TIMEOUT
