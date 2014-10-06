@@ -8,6 +8,7 @@ __author__ = 'karlp@tweak.net.au'
 
 import binascii
 import logging
+import select
 import socket
 import struct
 import time
@@ -45,11 +46,15 @@ if __name__ == "__main__":
     send_probe("192.168.255.124")
 
     while time.time() - start < REPLY_TIMEOUT:
-        d = None
-        try:
-            d = s.recv(1024)
-            logging.debug("got %s", d)
-        except socket.error, (value,message):
-            if value != 11:
-                logging.debug("val: %d, msg: %s", value, message)
+        # Should really calculate timeout from current time, but worst case is only 2*REPLY_TIMEOUT
+        # Should never get any errors on UDP listeners?
+        rr, rw, err = select.select([s], [], [s], REPLY_TIMEOUT)
+        for ss in rr:
+            d = ss.recv(1024)
+            if d:
+                logging.debug("got %s", binascii.hexlify(d))
+            else:
+                logging.warn("Failed to read from a ready socket, in UDP?! %s", ss)
+        for ss in err:
+            logging.warn("Got an error on a UDP Listen socket?!: %s", ss)
     s.close()
