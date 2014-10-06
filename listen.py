@@ -19,11 +19,23 @@ REPLY_TIMEOUT = 2
 SIEMENS_DISC_PORT_MASTER = 17009
 SIEMENS_DISC_PORT_DEVICE = 17008
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARN)
+
+class SiemensDevice():
+    def __init__(self, data):
+        # First 8 bytes are unknown...
+        logging.debug("Unknown bytes(8): %s", binascii.hexlify(data[:8]))
+        net = struct.unpack_from(">III", data, 8)
+        self.ip = socket.inet_ntoa(struct.pack('>I',net[0]))
+        self.netmask = socket.inet_ntoa(struct.pack('>I',net[1]))
+        self.gw = socket.inet_ntoa(struct.pack('>I',net[2]))
+        self.product = data[20:].strip()
+
+    def __repr__(self):
+        return "product=%(product)s {ip=%(ip)s, netmask=%(netmask)s, gw=%(gw)s}" % self.__dict__
 
 def send_probe(src_addr):
     data = "3101ffffffffffff"
-
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -53,6 +65,7 @@ if __name__ == "__main__":
             d = ss.recv(1024)
             if d:
                 logging.debug("got %s", binascii.hexlify(d))
+                print("Found a device: %s" % SiemensDevice(d))
             else:
                 logging.warn("Failed to read from a ready socket, in UDP?! %s", ss)
         for ss in err:
