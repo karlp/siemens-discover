@@ -11,6 +11,7 @@ import logging
 import select
 import socket
 import struct
+import sys
 import time
 
 # How long to wait for replies from devices (In whole seconds)
@@ -72,10 +73,12 @@ def listen(src):
     return sock
 
 if __name__ == "__main__":
+    if (len(sys.argv) < 2):
+        print("A local ip is a required argument")
     # Need to iterate over all available interfaces....
     s = listen("blah")
     start = time.time()
-    send_probe("192.168.255.124")
+    send_probe(sys.argv[1])
     # Send this once you have a mac, to get the fw version and bootloader version, if desired...
     #send_probe("192.168.255.124", cmd=0x3501, target_mac="20bbc602192a")
 
